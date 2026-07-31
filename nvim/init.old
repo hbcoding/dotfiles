@@ -1,0 +1,161 @@
+-- ============================================================
+-- Basic settings
+-- ============================================================
+vim.opt.number = true
+vim.opt.relativenumber = false
+vim.opt.expandtab = true
+vim.opt.shiftwidth = 2
+vim.opt.tabstop = 2
+vim.opt.smartindent = true
+vim.opt.wrap = true
+vim.opt.linebreak = true
+vim.opt.breakindent = true
+vim.opt.spell = true
+vim.opt.spelllang = { "en_us" }
+vim.opt.termguicolors = true
+vim.opt.signcolumn = "yes"
+vim.opt.mouse = "a"
+vim.opt.clipboard = "unnamedplus"
+vim.g.mapleader = " "
+
+-- ============================================================
+-- Recognise ConTeXt filetype (.mkiv, .mkxl, .mkvi, .tex)
+-- ============================================================
+vim.filetype.add({
+  extension = {
+    mkiv = "context",
+    mkxl = "context",
+    mkvi = "context",
+    mklx = "context",
+  },
+  pattern = {
+    [".*%.tex"] = function(_, _)
+      return "context"
+    end,
+  },
+})
+
+-- ============================================================
+-- Bootstrap lazy.nvim
+-- ============================================================
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not vim.loop.fs_stat(lazypath) then
+  vim.fn.system({
+    "git", "clone", "--filter=blob:none",
+    "https://github.com/folke/lazy.nvim.git", "--branch=stable", lazypath,
+  })
+end
+vim.opt.rtp:prepend(lazypath)
+
+-- ============================================================
+-- Plugins
+-- ============================================================
+require("lazy").setup({
+  { "neovim/nvim-lspconfig" },
+
+  { "hrsh7th/nvim-cmp",
+    dependencies = {
+      "hrsh7th/cmp-nvim-lsp",
+      "hrsh7th/cmp-buffer",
+      "hrsh7th/cmp-path",
+    },
+  },
+
+  { "folke/tokyonight.nvim", lazy = false, priority = 1000,
+    config = function() vim.cmd.colorscheme("tokyonight-night") end,
+  },
+})
+
+-- ============================================================
+-- Completion setup
+-- ============================================================
+local cmp = require("cmp")
+
+cmp.setup({
+  completion = {
+    keyword_length = 1,
+  },
+  snippet = {
+    expand = function(args)
+      vim.snippet.expand(args.body)
+    end,
+  },
+  mapping = cmp.mapping.preset.insert({
+    ["<C-Space>"] = cmp.mapping.complete(),
+    ["<CR>"]      = cmp.mapping.confirm({ select = true }),
+    ["<Tab>"]     = cmp.mapping.select_next_item(),
+    ["<S-Tab>"]   = cmp.mapping.select_prev_item(),
+  }),
+  sources = cmp.config.sources({
+    { name = "nvim_lsp", priority = 1000 },
+  }, {
+    { name = "buffer",   priority = 500, keyword_length = 3 },
+    { name = "path",     priority = 250 },
+  }),
+})
+
+-- ============================================================
+-- Treat backslash as part of a keyword in TeX/ConTeXt buffers
+-- ============================================================
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "tex", "plaintex", "context", "bib" },
+  callback = function()
+    vim.opt_local.iskeyword:append("\\")
+  end,
+})
+
+vim.env.DIGESTIF_TEXMF = table.concat({
+  vim.fn.expand("~/context/tex/texmf-context"),
+  vim.fn.expand("~/context/tex/texmf"),
+  vim.fn.expand("~/context/tex/texmf-modules"),
+}, ":")
+
+
+-- ============================================================
+-- Digestif LSP setup (Neovim 0.11+ native API)
+-- ============================================================
+local capabilities = require("cmp_nvim_lsp").default_capabilities()
+
+vim.lsp.config("digestif", {
+  cmd = { "digestif" },
+  filetypes = { "tex", "plaintex", "context", "bib" },
+  root_dir = function(bufnr, on_dir)
+    local fname = vim.api.nvim_buf_get_name(bufnr)
+    local dir = vim.fs.root(bufnr, { ".git", "main.tex", "Makefile" })
+              or vim.fs.dirname(fname)
+    on_dir(dir)
+  end,
+  capabilities = capabilities,
+})
+
+vim.lsp.enable("digestif")
+
+-- ============================================================
+-- LSP keymaps
+-- ============================================================
+vim.api.nvim_create_autocmd("LspAttach", {
+  callback = function(args)
+    local bufnr = args.buf
+    local opts = { buffer = bufnr, silent = true }
+    vim.keymap.set("n", "K",  vim.lsp.buf.hover, opts)
+    vim.keymap.set("n", "gd", vim.lsp.buf.definition, opts)
+    vim.keymap.set("n", "gr", vim.lsp.buf.references, opts)
+    vim.keymap.set("n", "<leader>rn", vim.lsp.buf.rename, opts)
+    vim.keymap.set("n", "<leader>ca", vim.lsp.buf.code_action, opts)
+  end,
+})
+
+-- ============================================================
+-- Compile ConTeXt with <leader>cc
+-- ============================================================
+vim.keymap.set("n", "<leader>cc", function()
+  local file = vim.fn.expand("%:p")
+  vim.cmd("write")
+  vim.cmd("!context " .. vim.fn.shellescape(file))
+end, { desc = "Compile with ConTeXt" })
+
+vim.keymap.set("n", "<leader>cv", function()
+  local pdf = vim.fn.expand("%:p:r") .. ".pdf"
+  vim.fn.jobstart({ "open", pdf }, { detach = true })
+end, { desc = "View PDF" })
+
